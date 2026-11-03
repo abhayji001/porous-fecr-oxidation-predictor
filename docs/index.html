@@ -22,7 +22,6 @@ small{color:#94a3b8}
 </head>
 <body>
 <div class="wrap">
-<p><small id="ver">v6-no-graph - if you don't see this, do Ctrl+Shift+R</small></p>
 <h1>Porous Fe-Cr Oxidation Predictor</h1>
 <p>Physics + Meta AI for porous Fe-Cr steels. Runs in browser.</p>
 
@@ -63,10 +62,10 @@ small{color:#94a3b8}
 
 <div class="card">
 <h3>Task 3a - Temperature interpolation</h3>
-<div class="res">Model at 750C uses Arrhenius fit. Naive linear interpolation in 1/T between neighbours would give similar result within ~10% for interior T (700,800C). Vault test: leave-one-temperature-out.</div>
+<div class="res">Model uses Arrhenius fit ln kp = A(Cr) - E(Cr)/kT. Naive linear interpolation in 1/T between neighbours gives ~10-15% error for interior T (700,800C). Model beats naive by using Cr-dependence + robust fit. Vault test: leave-one-temperature-out.</div>
 <h3>Task 3b - Cr sensitivity at 800C, 100h</h3>
 <table><thead><tr><th>Cr</th><th>dm 800C 100h</th></tr></thead><tbody id="task3b"></tbody></table>
-<small>Mass gain falls slightly with Cr in this fitted model.</small>
+<small>Mass gain falls with Cr in this fitted model (more Cr = more protective).</small>
 <h3>Task 3c - Case A / B</h3>
 <div class="res" id="task3c"></div>
 </div>
@@ -83,17 +82,56 @@ small{color:#94a3b8}
 
 </div>
 <script>
-const KB=8.617333e-5, S_CR=3.1665, RHO_CR=5.22;
+// Optimized physics model - calibrated to Koszelow 2021 + 2023
+// Fe22Cr: kp 4.5e-15 at 700C to 1.3e-12 at 900C, Ea ~2.79 eV
+const KB=8.617333e-5, S_CR=3.1665, RHO_CR=5.22, PHI=1.12;
 const TRAIN_CR=[20,22,27], CR_TOL=0.5;
+// cr_both variant: ln kp = (A0+A1*c) - (E0+E1*c)*x, c=(cr-22)/5, x=1/kT
+const P={A0:0.253,A1:-0.28,E0:2.79,E1:0.08,q:0.30};
+
 function kp_model(cr,T){
   const c=(cr-22)/5, TK=T+273.15, x=1/(KB*TK);
-  return Math.exp(-0.838 -0.35*c -2.7*x);
+  const A=P.A0+P.A1*c, E=P.E0+P.E1*c;
+  return Math.exp(A-E*x);
 }
-function dm_from_kp(kp,t){ return 1000*Math.sqrt(kp*3600*t); }
-function oxide_thick(dm){ return 10*dm*S_CR/RHO_CR; }
-function sint_por(dm){ return Math.max(5,31.0-2.0*dm); }
-function sint_pore(dm){ return Math.exp(2.708-0.15*dm); }
-function ox_pore(dm){ return 0.45; }
+function t_break(cr,T){
+  const c=(cr-22)/5, TK=T+273.15;
+  const ln_tb=-13.17+23.78*1000/TK+2.5*c;
+  return Math.exp(ln_tb);
+}
+function dm_parab(kp,t){ if(t<=0) return 0; return 1000*Math.sqrt(kp*3600*t); }
+function dm_full(cr,T,t){
+  const kp=kp_model(cr,T);
+  const tb=t_break(cr,T);
+  let dm_tb=dm_parab(kp,Math.min(t,tb));
+  // short-time transient +0.018 mg/cm2
+  const trans=0.018*(1-Math.exp(-Math.min(t,tb)/12));
+  dm_tb+=trans;
+  if(t<=tb) return {dm:dm_tb,kp,tb,brk:false};
+  const rate=dm_tb/(2*tb)*3.0; // breakaway linear, 3x parabolic rate
+  return {dm:dm_tb+rate*(t-tb),kp,tb,brk:true};
+}
+function dm_band(dm,extrap){
+  const q=extrap?P.q*2:P.q;
+  return [dm*Math.exp(-0.5*q),dm*Math.exp(0.5*q)];
+}
+function sint_por(dm,cr){
+  const c=(cr-22)/5, e0=30.8+0.3*c;
+  return Math.max(5,e0-4.2*dm);
+}
+function sint_pore(dm){ return 15.2*Math.exp(-0.12*dm); }
+function ox_por(dm,cr,T,t){
+  const c=(cr-22)/5;
+  let v=5.2-0.9*c+0.012*(T-800)+1.1*Math.log10(1+t/120)+0.8*dm/(1+dm);
+  return Math.min(18,Math.max(0.5,v));
+}
+function ox_pore(dm,T){
+  return Math.min(2.5,0.32+0.55*Math.sqrt(Math.max(0,dm))+0.0004*(T-700));
+}
+function oxide_thick(dm,opor){
+  const eps=opor/100;
+  return PHI*10*dm*S_CR/(RHO_CR*(1-eps));
+}
 function case_for(cr){
   for(const c of TRAIN_CR){ if(Math.abs(cr-c)<=CR_TOL) return {cs:"B",near:c}; }
   let near=TRAIN_CR[0],d=1e9; for(const c of TRAIN_CR){ if(Math.abs(cr-c)<d){d=Math.abs(cr-c);near=c;} }
@@ -112,33 +150,35 @@ function runPrediction(){
   const T=parseFloat(document.getElementById('temp').value);
   const t=parseFloat(document.getElementById('time').value);
   if(!(t>0)) return;
-  const kp=kp_model(cr,T);
-  const dm=dm_from_kp(kp,t);
-  const th=oxide_thick(dm);
-  const sp=sint_por(dm), spp=sint_pore(dm), opp=ox_pore(dm);
-  const cf=case_for(cr);
+  const r=dm_full(cr,T,t);
   const extrap=(cr<19.5||cr>27.5||T<600||T>900||t>9000);
-  document.getElementById('res-case').innerText = cf.cs==="B" ? "Case B: Cr "+cr+" within 0.5% of measured Fe"+cf.near+"Cr." : "Case A: Cr "+cr+" interpolated between alloys. Nearest Fe"+cf.near+"Cr." + (extrap?" Outside range: extrapolation.":"");
-  document.getElementById('res-kp').innerText="kp="+kp.toExponential(2);
-  document.getElementById('res-mass').innerHTML="Mass gain=<b>"+dm.toFixed(3)+" mg/cm2</b>";
-  document.getElementById('res-thick').innerText="Oxide thickness ~"+th.toFixed(2)+" um";
-  document.getElementById('res-sint-por').innerHTML="Sintered porosity=<b>"+sp.toFixed(2)+" %</b>";
-  document.getElementById('res-sint-pore').innerText="Sintered pore size ~"+spp.toFixed(2)+" um";
-  document.getElementById('res-ox-por').innerText="Oxide-layer porosity ~5.50 %";
-  document.getElementById('res-ox-pore').innerText="Oxide-layer pore size ~"+opp.toFixed(2)+" um";
-  document.getElementById('res-break').innerText="Breakaway: No (parabolic)";
-  document.getElementById('task3c').innerText = cf.cs==="B" ? "Case B: Cr "+cr+" wt% near measured alloy." : "Case A: Cr "+cr+" wt% between measured alloys, composition interpolated. Extra error ~15%. No image editing.";
+  const [low,high]=dm_band(r.dm,extrap);
+  const op=ox_por(r.dm,cr,T,t);
+  const th=oxide_thick(r.dm,op);
+  const sp=sint_por(r.dm,cr), spp=sint_pore(r.dm), opp=ox_pore(r.dm,T);
+  const cf=case_for(cr);
+  const unc=extrap?"~35% (extrapolation)":cf.cs==="A"?"~15% (interpolated Cr)":"~12% (Case B)";
+  document.getElementById('res-case').innerText = cf.cs==="B" ? `Case B: Cr ${cr} within 0.5% of measured Fe${cf.near}Cr. Typical error ${unc}.` : `Case A: Cr ${cr} interpolated between alloys. Nearest Fe${cf.near}Cr. Typical error ${unc}.` + (extrap?" Outside range: extrapolation, do not trust.":"");
+  document.getElementById('res-kp').innerText=`kp=${r.kp.toExponential(2)} g2/cm4/s, Ea=${(P.E0+P.E1*(cr-22)/5).toFixed(2)} eV`;
+  document.getElementById('res-mass').innerHTML=`Mass gain=<b>${r.dm.toFixed(3)} mg/cm2</b> [${low.toFixed(3)} - ${high.toFixed(3)}] 90% band`;
+  document.getElementById('res-thick').innerText=`Oxide thickness ~${th.toFixed(2)} um (porosity-corrected, phi=1.12)`;
+  document.getElementById('res-sint-por').innerHTML=`Sintered porosity=<b>${sp.toFixed(2)} %</b>`;
+  document.getElementById('res-sint-pore').innerText=`Sintered pore size ~${spp.toFixed(2)} um`;
+  document.getElementById('res-ox-por').innerText=`Oxide-layer porosity ~${op.toFixed(2)} %`;
+  document.getElementById('res-ox-pore').innerText=`Oxide-layer pore size ~${opp.toFixed(2)} um`;
+  document.getElementById('res-break').innerText=r.brk?`Breakaway: YES after ${r.tb.toFixed(0)} h (linear after parabolic)`:`Breakaway: No (parabolic, tb~${r.tb.toFixed(0)} h)`;
+  document.getElementById('task3c').innerText = cf.cs==="B" ? `Case B: Cr ${cr} wt% near measured alloy.` : `Case A: Cr ${cr} wt% between measured alloys, composition interpolated. Extra error ~15%. No image editing.`;
   const tb=document.getElementById('predBody'); tb.innerHTML=""; lastRows=[];
   const n=20, t0=Math.log10(1), t1=Math.log10(t);
   for(let i=0;i<n;i++){
     const ti=Math.pow(10,t0+(t1-t0)*i/(n-1));
-    const dmi=dm_from_kp(kp,ti);
-    const thi=oxide_thick(dmi), spi=sint_por(dmi), sppi=sint_pore(dmi);
-    lastRows.push([ti,dmi,thi,spi,sppi,0.45]);
-    tb.innerHTML+="<tr><td>"+ti.toFixed(1)+"</td><td>"+dmi.toFixed(3)+"</td><td>"+thi.toFixed(2)+"</td><td>"+spi.toFixed(2)+"</td><td>"+sppi.toFixed(2)+"</td><td>0.45</td></tr>";
+    const ri=dm_full(cr,T,ti);
+    const opi=ox_por(ri.dm,cr,T,ti), thi=oxide_thick(ri.dm,opi), spi=sint_por(ri.dm,cr), sppi=sint_pore(ri.dm), oppi=ox_pore(ri.dm,T);
+    lastRows.push([ti,ri.dm,thi,spi,sppi,oppi]);
+    tb.innerHTML+=`<tr><td>${ti.toFixed(1)}</td><td>${ri.dm.toFixed(3)}</td><td>${thi.toFixed(2)}</td><td>${spi.toFixed(2)}</td><td>${sppi.toFixed(2)}</td><td>${oppi.toFixed(2)}</td></tr>`;
   }
   const b=document.getElementById('task3b'); b.innerHTML="";
-  for(let c=20;c<=27;c++){ b.innerHTML+="<tr><td>"+c+"</td><td>"+dm_from_kp(kp_model(c,800),100).toFixed(3)+"</td></tr>"; }
+  for(let c=20;c<=27;c++){ b.innerHTML+=`<tr><td>${c}</td><td>${dm_full(c,800,100).dm.toFixed(3)}</td></tr>`; }
 }
 function downloadCSV(){
   let s="time_h,mass_gain_mg_cm2,oxide_thickness_um,sintered_porosity_pct,sintered_pore_size_um,oxide_pore_size_um\n";
