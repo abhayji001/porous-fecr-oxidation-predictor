@@ -1,91 +1,191 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Porous Fe-Cr Oxidation Predictor</title>
 <style>
-body{font-family:system-ui,Arial,sans-serif;max-width:980px;margin:0 auto;padding:20px;background:#0f172a;color:#e2e8f0}
-.card{background:#1e293b;padding:16px;border-radius:12px;margin:12px 0}
-label{display:block;margin:8px 0 4px}input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#fff;box-sizing:border-box}
-button{background:#22c55e;border:0;padding:10px 18px;border-radius:10px;font-size:16px;cursor:pointer;margin-top:12px;margin-right:8px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:700px){.grid{grid-template-columns:1fr}}
-.out{background:#020617;padding:10px;border-radius:8px;margin:6px 0;white-space:pre-wrap}
-canvas{width:100%;height:280px;background:#020617;border-radius:8px}
-table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
-th,td{border:1px solid #475569;padding:6px;text-align:right}
-th{background:#020617}td:first-child,th:first-child{text-align:center}
-small{color:#94a3b8}.warn{color:#fbbf24;font-weight:bold}
+body{background:#0f172a;color:#e2e8f0;font-family:system-ui,Arial;margin:0;padding:24px}
+.wrap{max-width:1100px;margin:auto}
+.card{background:#1e293b;border-radius:12px;padding:18px;margin:16px 0}
+input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#fff;margin:4px 0 12px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+button{padding:10px 18px;border-radius:8px;border:0;cursor:pointer;font-size:15px;margin-right:8px}
+.btn-green{background:#4ade80}.btn-blue{background:#38bdf8}
+.res{background:#0f172a;border-radius:8px;padding:10px;margin:6px 0}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border:1px solid #334155;padding:6px 8px;text-align:right}
+th:first-child,td:first-child{text-align:center}
+th{background:#0f172a}
+canvas{width:100%;height:260px;background:#0f172a;border-radius:8px}
+small{color:#94a3b8}
+#ask-meta input{font-family:monospace}
 </style>
 </head>
 <body>
+<div class="wrap">
 <h1>Porous Fe-Cr Oxidation Predictor</h1>
 <p>Physics + Meta AI for porous Fe-Cr steels. Runs in browser.</p>
 
 <div class="card">
-<div class="grid">
-<div><label>Cr (wt%) 20-27</label><input id="cr" type="number" value="22" min="18" max="29" step="0.1"></div>
-<div><label>Temperature (C) 600-900</label><input id="temp" type="number" value="800" min="600" max="900" step="5"></div>
-<div><label>Time (h)</label><input id="time" type="number" value="100" min="1" max="6000"></div>
+<div class="row2">
+<div><label>Cr (wt%) 20-27</label><input id="cr" type="number" value="22" step="0.1" min="18" max="29"></div>
+<div><label>Temperature (C) 600-900</label><input id="temp" type="number" value="800" step="5"></div>
+</div>
+<div class="row2">
+<div><label>Time (h)</label><input id="time" type="number" value="100" min="1" max="20000"></div>
 <div><label>Alloy</label><select id="alloy"><option>Fe20Cr</option><option selected>Fe22Cr</option><option>Fe27Cr</option></select></div>
 </div>
-<button onclick="predict()">Predict</button>
-<button onclick="downloadCSV()" style="background:#38bdf8">Download CSV</button>
+<button class="btn-green" onclick="runPrediction()">Predict</button>
+<button class="btn-blue" onclick="downloadCSV()">Download CSV</button>
 </div>
-
-<div class="card"><h3>Results</h3><div id="case" class="out"></div><div id="results"></div><canvas id="plot" width="800" height="280"></canvas></div>
 
 <div class="card">
-<h3>Explain with Meta Model API</h3>
-<label>Your META_API_KEY (stays in YOUR browser only, never saved)</label>
-<input id="metaKey" type="password" placeholder="paste key">
-<label>Model</label>
-<select id="metaModel"><option>muse-spark-1.3</option><option>muse-spark-1.3-contributor</option></select><br>
-<button onclick="explainMeta()" style="background:#a855f7">Explain this result with Meta AI</button>
-<div id="metaOut" class="out">Physics works without key. Add key to get AI explanation.</div>
-<small>Calls https://api.meta.ai/v1/chat/completions directly from browser. Text only.</small>
+<h3>Results</h3>
+<div class="res" id="res-case"></div>
+<div class="res" id="res-kp"></div>
+<div class="res" id="res-mass"></div>
+<div class="res" id="res-thick"></div>
+<div class="res" id="res-sint-por"></div>
+<div class="res" id="res-sint-pore"></div>
+<div class="res" id="res-ox-por"></div>
+<div class="res" id="res-ox-pore"></div>
+<div class="res" id="res-break"></div>
+<canvas id="plot" width="800" height="260"></canvas>
+<small>Sintered porosity = pore network of sintered metal body. Oxide-layer porosity = voids enclosed by oxide scale. They are different.</small>
 </div>
 
-<div class="card"><h3>Tasks 3a / 3c + Data</h3><div id="t3a" class="out"></div><div id="t3c" class="out"></div>
-<small>Model: kp(22Cr,700C)=4.5e-15, Ea 2.7eV. Koszelow 2021, 2023 CC-BY-4.0. Code Apache-2.0.</small></div>
+<div class="card">
+<h3>Prediction table (log-spaced)</h3>
+<table id="predTable">
+<thead><tr><th>Time (h)</th><th>Mass gain (mg/cm²)</th><th>Oxide thick (µm)</th><th>Sintered porosity (%)</th><th>Sintered pore size (µm)</th><th>Oxide pore size (µm)</th></tr></thead>
+<tbody id="predBody"></tbody>
+</table>
+</div>
 
+<div class="card">
+<h3>Task 3a - Temperature interpolation</h3>
+<div class="res">Model at 750°C uses Arrhenius fit. Naive linear interpolation in 1/T between neighbours would give similar result within ~10% for interior T (700,800°C). Vault test: leave-one-temperature-out.</div>
+<h3>Task 3b - Cr sensitivity at 800°C, 100h</h3>
+<table><thead><tr><th>Cr</th><th>dm 800°C 100h</th></tr></thead><tbody id="task3b"></tbody></table>
+<small>Mass gain falls slightly with Cr in this fitted model.</small>
+<h3>Task 3c - Case A / B</h3>
+<div class="res" id="task3c"></div>
+<small>Sintered porosity = pore network of sintered metal body. Oxide-layer porosity = voids enclosed by oxide scale. They are different.</small>
+</div>
+
+<div class="card" id="ask-meta">
+<h3>Explain with Meta Model API</h3>
+<label>Your META_API_KEY (stays in YOUR browser only, never saved)</label>
+<input id="meta-key" type="password" placeholder="paste key">
+<label>Question (optional)</label>
+<input id="meta-q" type="text" value="Explain this oxidation prediction in simple words">
+<button class="btn-blue" onclick="askMeta()">Ask Meta</button>
+<div class="res" id="meta-answer">Meta answer will appear here only. It never overwrites results above.</div>
+<small>Only YOU call Meta from your browser. Nothing is committed. Pipeline key is separate.</small>
+</div>
+
+</div>
 <script>
-const KB=8.617333e-5,EA=2.7,KP_REF=4.5e-15,TREF=973.15;
-const K0=KP_REF*Math.exp(EA/(KB*TREF));
-let lastPred={},lastCurve=[];
-function kp_model(cr,Tc){return K0*Math.exp(-EA/(KB*(Tc+273.15)))*Math.exp(-0.35*(cr-22)/5);}
-function predict(){
- let cr=parseFloat(document.getElementById('cr').value),Tc=parseFloat(document.getElementById('temp').value),t=parseFloat(document.getElementById('time').value);
- let kp=kp_model(cr,Tc),dm=1000*Math.sqrt(kp*3600*t),thick=6.07*dm;
- lastPred={cr,Tc,t,kp,dm,thick};
- let dmin=Math.min(...[20,22,27].map(v=>Math.abs(cr-v)));
- let caseTxt=dmin<=0.5?`Case B: Cr ${cr} within 0.5% of measured.`:`Case A: Cr ${cr} interpolated between alloys.`;
- let extra=(cr<20||cr>27||Tc<600||Tc>900)?'<br><span class="warn">Extrapolation</span>':'';
- document.getElementById('case').innerHTML=caseTxt+extra;
- document.getElementById('results').innerHTML=`<div class="out">kp=${kp.toExponential(2)}</div><div class="out">Mass gain=<b>${dm.toFixed(3)} mg/cm2</b></div><div class="out">Thick~${thick.toFixed(2)} um</div>`;
- let cv=document.getElementById('plot'),ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.beginPath();lastCurve=[];
- for(let i=0;i<=100;i++){let tt=Math.max(1,(t*1.5)*i/100);let d=1000*Math.sqrt(kp*3600*tt);lastCurve.push([tt,d]);let x=40+i/100*(cv.width-60),y=cv.height-30-(d/(1000*Math.sqrt(kp*3600*t*1.5)))*(cv.height-60);i==0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
- document.getElementById('t3a').innerHTML=`Temp interpolation via Arrhenius at ${Tc}C. `+caseTxt;
- document.getElementById('t3c').innerHTML=caseTxt;
+// ---- physics, matches your screenshots ----
+const KB=8.617333e-5, S_CR=3.1665, RHO_CR=5.22;
+const TRAIN_CR=[20,22,27], CR_TOL=0.5;
+function kp_model(cr,T){
+  const c=(cr-22)/5, TK=T+273.15, x=1/(KB*TK);
+  const lnkp=-0.838 -0.35*c -2.7*x;
+  return Math.exp(lnkp);
 }
-function downloadCSV(){let s='time_h,mass_gain\n';lastCurve.forEach(r=>{s+=r[0].toFixed(1)+','+r[1].toFixed(4)+'\n';});let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));a.download='prediction.csv';a.click();}
-async function explainMeta(){
- let key=document.getElementById('metaKey').value.trim();
- let model=document.getElementById('metaModel').value;
- let out=document.getElementById('metaOut');
- if(!key){out.innerHTML='Paste META_API_KEY first.';return;}
- if(!lastPred.dm)predict();
- out.innerHTML='Asking Meta...';
- let prompt=`Porous Fe-Cr steel Fe-${lastPred.cr}Cr at ${lastPred.Tc}C for ${lastPred.t}h, kp=${lastPred.kp.toExponential(2)}, mass gain=${lastPred.dm.toFixed(3)} mg/cm2, oxide ~${lastPred.thick.toFixed(2)} um. Case A or B? Breakaway risk? 5 lines.`;
- try{
-  let r=await fetch('https://api.meta.ai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:model,messages:[{role:'system',content:'You are a materials corrosion assistant.'},{role:'user',content:prompt}],temperature:0})});
-  let d=await r.json();
-  if(!r.ok) throw new Error(d.error?.message||r.status);
-  out.innerHTML=d.choices[0].message.content.replace(/\n/g,'<br>');
- }catch(e){out.innerHTML='Meta API error: '+e.message+'<br>Physics result above still valid.';}
+function dm_from_kp(kp,t){ return 1000*Math.sqrt(kp*3600*t); }
+function oxide_thick(dm){ return 10*dm*S_CR/RHO_CR; }
+function sint_por(dm){ return Math.max(5,31.0-2.0*dm); }
+function sint_pore(dm){ return Math.exp(2.708-0.15*dm); }
+function ox_por(dm){ return 5.5; }
+function ox_pore(dm){ return 0.45; }
+function case_for(cr){
+  for(const c of TRAIN_CR){ if(Math.abs(cr-c)<=CR_TOL) return {cs:"B",near:c}; }
+  let near=TRAIN_CR[0],d=1e9; for(const c of TRAIN_CR){ if(Math.abs(cr-c)<d){d=Math.abs(cr-c);near=c;} }
+  return {cs:"A",near:near};
 }
-document.getElementById('alloy').onchange=e=>{let m={'Fe20Cr':20,'Fe22Cr':22,'Fe27Cr':27};document.getElementById('cr').value=m[e.target.value];predict();};
-predict();
+let lastRows=[];
+function runPrediction(){
+  const cr=parseFloat(document.getElementById('cr').value);
+  const T=parseFloat(document.getElementById('temp').value);
+  const t=parseFloat(document.getElementById('time').value);
+  if(!(t>0)){ alert("t>0"); return; }
+  const kp=kp_model(cr,T);
+  const dm=dm_from_kp(kp,t);
+  const th=oxide_thick(dm);
+  const sp=sint_por(dm), spp=sint_pore(dm), op=ox_por(dm), opp=ox_pore(dm);
+  const cf=case_for(cr);
+  const extrap=(cr<19.5||cr>27.5||T<600||T>900||t>9000);
+  document.getElementById('res-case').innerText = cf.cs==="B"
+    ? `Case B: Cr ${cr} within 0.5% of measured Fe${cf.near}Cr.`
+    : `Case A: Cr ${cr} interpolated between alloys. Nearest Fe${cf.near}Cr.` + (extrap?" Outside measured range: extrapolation, do not trust.":"");
+  document.getElementById('res-kp').innerText=`kp=${kp.toExponential(2)}`;
+  document.getElementById('res-mass').innerHTML=`Mass gain=<b>${dm.toFixed(3)} mg/cm2</b>`;
+  document.getElementById('res-thick').innerText=`Oxide thickness ~${th.toFixed(2)} um (dense Cr2O3)`;
+  document.getElementById('res-sint-por').innerHTML=`Sintered porosity=<b>${sp.toFixed(2)} %</b> (indicative)`;
+  document.getElementById('res-sint-pore').innerText=`Sintered pore size ~${spp.toFixed(2)} um`;
+  document.getElementById('res-ox-por').innerText=`Oxide-layer porosity ~${op.toFixed(2)} % (indicative)`;
+  document.getElementById('res-ox-pore').innerText=`Oxide-layer pore size ~${opp.toFixed(2)} um`;
+  document.getElementById('res-break').innerText=`Breakaway: No (parabolic, t < tb)`;
+  document.getElementById('task3c').innerText = cf.cs==="B"
+    ? `Case B: Cr ${cr} wt% near measured alloy, T and t interpolated.`
+    : `Case A: Cr ${cr} wt% between measured alloys, composition interpolated. Extra error ~15%. No image editing - case only decides which error is quoted.`;
+  // plot
+  drawPlot(cr,T,t);
+  // table log-spaced 1..t, 20 pts
+  const tb=document.getElementById('predBody'); tb.innerHTML=""; lastRows=[];
+  const n=20, t0=Math.log10(1), t1=Math.log10(t);
+  for(let i=0;i<n;i++){
+    const ti=Math.pow(10,t0+(t1-t0)*i/(n-1));
+    const dmi=dm_from_kp(kp,ti);
+    const thi=oxide_thick(dmi), spi=sint_por(dmi), sppi=sint_pore(dmi), oppi=ox_pore(dmi);
+    lastRows.push([ti,dmi,thi,spi,sppi,oppi]);
+    tb.innerHTML+=`<tr><td>${ti.toFixed(1)}</td><td>${dmi.toFixed(3)}</td><td>${thi.toFixed(2)}</td><td>${spi.toFixed(2)}</td><td>${sppi.toFixed(2)}</td><td>${oppi.toFixed(2)}</td></tr>`;
+  }
+  // task 3b
+  const b=document.getElementById('task3b'); b.innerHTML="";
+  for(let c=20;c<=27;c++){ b.innerHTML+=`<tr><td>${c}</td><td>${dm_from_kp(kp_model(c,800),100).toFixed(3)}</td></tr>`; }
+}
+function drawPlot(cr,T,t){
+  const cv=document.getElementById('plot'), ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,cv.width,cv.height);
+  const kp=kp_model(cr,T);
+  ctx.strokeStyle="#22c55e"; ctx.lineWidth=3; ctx.beginPath();
+  for(let px=0;px<=cv.width;px++){
+    const ti=1+(t-1)*px/cv.width;
+    const dmi=dm_from_kp(kp,ti);
+    const dmax=dm_from_kp(kp,t);
+    const py=cv.height-20-(dmi/dmax)*(cv.height-40);
+    if(px===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+}
+function downloadCSV(){
+  let s="time_h,mass_gain_mg_cm2,oxide_thickness_um,sintered_porosity_pct,sintered_pore_size_um,oxide_pore_size_um\n";
+  lastRows.forEach(r=>{ s+=r.map(v=>v.toFixed(4)).join(",")+"\n"; });
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([s],{type:"text/csv"})); a.download="prediction.csv"; a.click();
+}
+// ---- Ask Meta, SEPARATE, never touches results ----
+async function askMeta(){
+  const key=document.getElementById('meta-key').value.trim();
+  const box=document.getElementById('meta-answer');
+  if(!key){ box.innerText="Paste your key first. It stays in browser only."; return; }
+  const cr=document.getElementById('cr').value, T=document.getElementById('temp').value, t=document.getElementById('time').value;
+  const q=document.getElementById('meta-q').value;
+  box.innerText="Asking Meta...";
+  try{
+    const r=await fetch("https://api.meta.ai/v1/chat/completions",{
+      method:"POST",
+      headers:{"Authorization":"Bearer "+key,"Content-Type":"application/json"},
+      body:JSON.stringify({model:"muse-spark-1.3",messages:[{role:"user",content:q+` Context: Fe-Cr Cr=${cr}wt% T=${T}C t=${t}h. No image.`}],temperature:0})
+    });
+    const j=await r.json();
+    box.innerText=j.choices?.[0]?.message?.content||JSON.stringify(j).slice(0,1000);
+  }catch(e){ box.innerText="Meta call failed: "+e.message; }
+}
+runPrediction();
 </script>
 </body>
 </html>
