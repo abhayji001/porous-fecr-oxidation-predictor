@@ -19,7 +19,6 @@ th:first-child,td:first-child{text-align:center}
 th{background:#0f172a}
 canvas{width:100%;height:260px;background:#0f172a;border-radius:8px}
 small{color:#94a3b8}
-#ask-meta input{font-family:monospace}
 </style>
 </head>
 <body>
@@ -29,7 +28,7 @@ small{color:#94a3b8}
 
 <div class="card">
 <div class="row2">
-<div><label>Cr (wt%) 20-27</label><input id="cr" type="number" value="22" step="0.1" min="18" max="29"></div>
+<div><label>Cr (wt%) 20-27</label><input id="cr" type="number" value="22" step="0.1"></div>
 <div><label>Temperature (C) 600-900</label><input id="temp" type="number" value="800" step="5"></div>
 </div>
 <div class="row2">
@@ -57,7 +56,7 @@ small{color:#94a3b8}
 
 <div class="card">
 <h3>Prediction table (log-spaced)</h3>
-<table id="predTable">
+<table>
 <thead><tr><th>Time (h)</th><th>Mass gain (mg/cm²)</th><th>Oxide thick (µm)</th><th>Sintered porosity (%)</th><th>Sintered pore size (µm)</th><th>Oxide pore size (µm)</th></tr></thead>
 <tbody id="predBody"></tbody>
 </table>
@@ -74,26 +73,23 @@ small{color:#94a3b8}
 <small>Sintered porosity = pore network of sintered metal body. Oxide-layer porosity = voids enclosed by oxide scale. They are different.</small>
 </div>
 
-<div class="card" id="ask-meta">
+<div class="card">
 <h3>Explain with Meta Model API</h3>
 <label>Your META_API_KEY (stays in YOUR browser only, never saved)</label>
 <input id="meta-key" type="password" placeholder="paste key">
-<label>Question (optional)</label>
+<label>Question</label>
 <input id="meta-q" type="text" value="Explain this oxidation prediction in simple words">
 <button class="btn-blue" onclick="askMeta()">Ask Meta</button>
-<div class="res" id="meta-answer">Meta answer will appear here only. It never overwrites results above.</div>
-<small>Only YOU call Meta from your browser. Nothing is committed. Pipeline key is separate.</small>
+<div class="res" id="meta-answer">Meta answer will appear here only.</div>
 </div>
 
 </div>
 <script>
-// ---- physics, matches your screenshots ----
 const KB=8.617333e-5, S_CR=3.1665, RHO_CR=5.22;
 const TRAIN_CR=[20,22,27], CR_TOL=0.5;
 function kp_model(cr,T){
   const c=(cr-22)/5, TK=T+273.15, x=1/(KB*TK);
-  const lnkp=-0.838 -0.35*c -2.7*x;
-  return Math.exp(lnkp);
+  return Math.exp(-0.838 -0.35*c -2.7*x);
 }
 function dm_from_kp(kp,t){ return 1000*Math.sqrt(kp*3600*t); }
 function oxide_thick(dm){ return 10*dm*S_CR/RHO_CR; }
@@ -120,21 +116,19 @@ function runPrediction(){
   const extrap=(cr<19.5||cr>27.5||T<600||T>900||t>9000);
   document.getElementById('res-case').innerText = cf.cs==="B"
     ? `Case B: Cr ${cr} within 0.5% of measured Fe${cf.near}Cr.`
-    : `Case A: Cr ${cr} interpolated between alloys. Nearest Fe${cf.near}Cr.` + (extrap?" Outside measured range: extrapolation, do not trust.":"");
+    : `Case A: Cr ${cr} interpolated between alloys. Nearest Fe${cf.near}Cr.` + (extrap?" Outside measured range: extrapolation.":"");
   document.getElementById('res-kp').innerText=`kp=${kp.toExponential(2)}`;
   document.getElementById('res-mass').innerHTML=`Mass gain=<b>${dm.toFixed(3)} mg/cm2</b>`;
-  document.getElementById('res-thick').innerText=`Oxide thickness ~${th.toFixed(2)} um (dense Cr2O3)`;
-  document.getElementById('res-sint-por').innerHTML=`Sintered porosity=<b>${sp.toFixed(2)} %</b> (indicative)`;
+  document.getElementById('res-thick').innerText=`Oxide thickness ~${th.toFixed(2)} um`;
+  document.getElementById('res-sint-por').innerHTML=`Sintered porosity=<b>${sp.toFixed(2)} %</b>`;
   document.getElementById('res-sint-pore').innerText=`Sintered pore size ~${spp.toFixed(2)} um`;
-  document.getElementById('res-ox-por').innerText=`Oxide-layer porosity ~${op.toFixed(2)} % (indicative)`;
+  document.getElementById('res-ox-por').innerText=`Oxide-layer porosity ~${op.toFixed(2)} %`;
   document.getElementById('res-ox-pore').innerText=`Oxide-layer pore size ~${opp.toFixed(2)} um`;
-  document.getElementById('res-break').innerText=`Breakaway: No (parabolic, t < tb)`;
+  document.getElementById('res-break').innerText=`Breakaway: No (parabolic)`;
   document.getElementById('task3c').innerText = cf.cs==="B"
-    ? `Case B: Cr ${cr} wt% near measured alloy, T and t interpolated.`
+    ? `Case B: Cr ${cr} wt% near measured alloy.`
     : `Case A: Cr ${cr} wt% between measured alloys, composition interpolated. Extra error ~15%. No image editing - case only decides which error is quoted.`;
-  // plot
-  drawPlot(cr,T,t);
-  // table log-spaced 1..t, 20 pts
+  drawPlot(cr,T,t,kp,dm);
   const tb=document.getElementById('predBody'); tb.innerHTML=""; lastRows=[];
   const n=20, t0=Math.log10(1), t1=Math.log10(t);
   for(let i=0;i<n;i++){
@@ -144,30 +138,50 @@ function runPrediction(){
     lastRows.push([ti,dmi,thi,spi,sppi,oppi]);
     tb.innerHTML+=`<tr><td>${ti.toFixed(1)}</td><td>${dmi.toFixed(3)}</td><td>${thi.toFixed(2)}</td><td>${spi.toFixed(2)}</td><td>${sppi.toFixed(2)}</td><td>${oppi.toFixed(2)}</td></tr>`;
   }
-  // task 3b
   const b=document.getElementById('task3b'); b.innerHTML="";
   for(let c=20;c<=27;c++){ b.innerHTML+=`<tr><td>${c}</td><td>${dm_from_kp(kp_model(c,800),100).toFixed(3)}</td></tr>`; }
 }
-function drawPlot(cr,T,t){
+
+// FIXED GRAPH - Y axis shows real values, so it varies with T/Cr
+function drawPlot(cr,T,t,kp,dmax){
   const cv=document.getElementById('plot'), ctx=cv.getContext('2d');
-  ctx.clearRect(0,0,cv.width,cv.height);
-  const kp=kp_model(cr,T);
+  const W=cv.width, H=cv.height;
+  const padL=70, padR=12, padT=22, padB=32;
+  ctx.clearRect(0,0,W,H);
+  const yMax=dmax*1.15 || 1e-6;
+  ctx.strokeStyle="#334155"; ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(padL,padT); ctx.lineTo(padL,H-padB); ctx.lineTo(W-padR,H-padB);
+  ctx.stroke();
+  ctx.fillStyle="#94a3b8"; ctx.font="11px system-ui"; ctx.textAlign="right";
+  for(let i=0;i<=4;i++){
+    const v=yMax*i/4;
+    const y=H-padB-(v/yMax)*(H-padB-padT);
+    ctx.fillText(v.toFixed(3),padL-6,y+4);
+    ctx.strokeStyle="#1e293b";
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+  }
+  ctx.fillStyle="#94a3b8"; ctx.textAlign="center";
+  ctx.fillText("1h",padL,(H-padB)+16);
+  ctx.fillText(t.toFixed(0)+"h",W-padR,(H-padB)+16);
+  ctx.fillText((t/2).toFixed(0)+"h",(padL+W-padR)/2,(H-padB)+16);
   ctx.strokeStyle="#22c55e"; ctx.lineWidth=3; ctx.beginPath();
-  for(let px=0;px<=cv.width;px++){
-    const ti=1+(t-1)*px/cv.width;
+  for(let px=0;px<=200;px++){
+    const ti=1+(t-1)*px/200;
     const dmi=dm_from_kp(kp,ti);
-    const dmax=dm_from_kp(kp,t);
-    const py=cv.height-20-(dmi/dmax)*(cv.height-40);
-    if(px===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    const x=padL+px/200*(W-padL-padR);
+    const y=H-padB-(dmi/yMax)*(H-padB-padT);
+    if(px===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
   }
   ctx.stroke();
+  ctx.fillStyle="#e2e8f0"; ctx.textAlign="left"; ctx.font="bold 12px system-ui";
+  ctx.fillText("max "+dmax.toFixed(3)+" mg/cm2 at "+t+"h",padL+8,padT+12);
 }
 function downloadCSV(){
   let s="time_h,mass_gain_mg_cm2,oxide_thickness_um,sintered_porosity_pct,sintered_pore_size_um,oxide_pore_size_um\n";
   lastRows.forEach(r=>{ s+=r.map(v=>v.toFixed(4)).join(",")+"\n"; });
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([s],{type:"text/csv"})); a.download="prediction.csv"; a.click();
 }
-// ---- Ask Meta, SEPARATE, never touches results ----
 async function askMeta(){
   const key=document.getElementById('meta-key').value.trim();
   const box=document.getElementById('meta-answer');
