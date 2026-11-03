@@ -1,0 +1,60 @@
+name: pipeline
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Run the whole pipeline (untick to deploy the last good build)
+        type: boolean
+        default: true
+      deploy:
+        description: Deploy to the Hugging Face Space afterwards
+        type: boolean
+        default: false
+permissions:
+  contents: write
+env:
+  PYTHONPATH: .
+jobs:
+  build:
+    if: ${{ inputs.build }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -r requirements.txt
+      - name: Run pipeline
+        env:
+          META_API_KEY: ${{ secrets.META_API_KEY }}
+        run: |
+          . .venv/bin/activate
+          python scripts/run_pipeline.py
+      - name: Save results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Pipeline results" || echo "Nothing to commit"
+          git push || echo "Nothing to push"
+  deploy:
+    needs: build
+    if: ${{ always() && inputs.deploy && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - name: Refuse to deploy a stopped build
+        run: |
+          test -f models/fidelity.json
+          test ! -f docs/DATA_INSUFFICIENT.md
+          test ! -f LICENSE_FLAGS.md
+      - uses: huggingface/hub-sync@v0.3.0
+        with:
+          github_repo_id: ${{ github.repository }}
+          huggingface_repo_id: ${{ vars.HF_SPACE_ID }}
+          hf_token: ${{ secrets.HF_TOKEN }}
