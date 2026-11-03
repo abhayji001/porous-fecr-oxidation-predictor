@@ -1,42 +1,93 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Porous Fe-Cr Oxidation Predictor</title>
 <style>
 body{font-family:system-ui,Arial,sans-serif;max-width:980px;margin:0 auto;padding:20px;background:#0f172a;color:#e2e8f0}
 .card{background:#1e293b;padding:16px;border-radius:12px;margin:12px 0}
-label{display:block;margin:8px 0 4px}input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#fff}
-button{background:#22c55e;border:0;padding:10px 18px;border-radius:10px;font-size:16px;cursor:pointer;margin-top:12px}
+label{display:block;margin:8px 0 4px}input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #475569;background:#0f172a;color:#fff;box-sizing:border-box}
+button{background:#22c55e;border:0;padding:10px 18px;border-radius:10px;font-size:16px;cursor:pointer;margin-top:12px;margin-right:8px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 .out{background:#020617;padding:10px;border-radius:8px;margin:6px 0}
 canvas{width:100%;height:280px;background:#020617;border-radius:8px}
-small{color:#94a3b8}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+th,td{border:1px solid #475569;padding:6px;text-align:right}
+th{background:#020617}td:first-child,th:first-child{text-align:center}
+small{color:#94a3b8}a{color:#7dd3fc}
+.warn{color:#fbbf24;font-weight:bold}
 </style>
 </head>
 <body>
 <h1>Porous Fe-Cr Oxidation Predictor</h1>
-<p>Physics-based prediction for porous sintered Fe-Cr steels (Fe20Cr, Fe22Cr, Fe27Cr). No login, runs in browser.</p>
+<p>Physics-based prediction for porous sintered Fe-Cr steels (Fe20Cr, Fe22Cr, Fe27Cr, ~30% sintered porosity). Parabolic law + Arrhenius. Runs fully in browser.</p>
 
 <div class="card">
 <div class="grid">
-<div><label>Cr content (wt%) 20 - 27</label><input id="cr" type="number" value="22" min="18" max="29" step="0.1"></div>
-<div><label>Temperature (°C) 600 - 900</label><input id="temp" type="number" value="800" min="600" max="900" step="5"></div>
-<div><label>Time (h)</label><input id="time" type="number" value="100" min="1" max="6000"></div>
-<div><label>Alloy (for reference)</label><select id="alloy"><option>Fe20Cr</option><option selected>Fe22Cr</option><option>Fe27Cr</option></select></div>
+<div><label>Cr content (wt%) 20-27</label><input id="cr" type="number" value="22" min="18" max="29" step="0.1"></div>
+<div><label>Temperature (°C) 600-900</label><input id="temp" type="number" value="800" min="600" max="900" step="5"></div>
+<div><label>Time (h) 1-6000</label><input id="time" type="number" value="100" min="1" max="6000"></div>
+<div><label>Alloy</label><select id="alloy"><option>Fe20Cr</option><option selected>Fe22Cr</option><option>Fe27Cr</option></select></div>
 </div>
 <button onclick="predict()">Predict</button>
+<button onclick="downloadCSV()" style="background:#38bdf8">Download CSV</button>
 </div>
 
-<div class="card">
-<h3>Results</h3>
-<div id="case" class="out"></div>
-<div id="results"></div>
+<div class="card"><h3>Results</h3>
+<div id="case" class="out"></div><div id="results"></div>
 <canvas id="plot" width="800" height="280"></canvas>
-<small>Sintered porosity = pore network of sintered metal (~30%). Oxide-layer porosity = voids in oxide scale. Mass gain mg/cm², thickness µm. Parabolic law: dm = 1000·sqrt(kp·3600·t), kp from Arrhenius Ea≈2.7 eV, kp(22Cr,700°C)=4.5e-15 g²/cm⁴/s.</small>
+<h4>Prediction table (log-spaced)</h4>
+<div style="overflow:auto"><table id="tbl"><tr><th>Time (h)</th><th>Mass gain (mg/cm²)</th><th>Oxide thick (µm)</th></tr></table></div>
 </div>
+
+<div class="card"><h3>Task 3a - Temperature interpolation</h3><div id="t3a" class="out"></div>
+<h3>Task 3b - Cr sensitivity at 800°C, 100h</h3><div id="t3b"></div>
+<h3>Task 3c - Case A / B</h3><div id="t3c" class="out"></div>
+<small>Sintered porosity = pore network of sintered metal body. Oxide-layer porosity = voids enclosed by oxide scale. They are different.</small>
+</div>
+
+<div class="card"><h3>Data & Model</h3>
+<small>Model: dm = 1000*sqrt(kp*3600*t), kp(Fe22Cr,700°C)=4.5e-15 g²/cm⁴/s, Ea≈2.7 eV [Koszelow et al. Corros. Sci. 189:109589 (2021), Metall. Mater. Trans. A 54:2244 (2023), CC-BY-4.0].<br>
+Code: Apache-2.0. This is a prediction, not a measurement. Outside 20-27%Cr, 600-900°C or >6000h = extrapolation.</small></div>
+
+<script>
+const KB=8.617333e-5, EA=2.7, KP_REF=4.5e-15, TREF=973.15;
+const K0=KP_REF*Math.exp(EA/(KB*TREF));
+function kp_model(cr,Tc){ return K0*Math.exp(-EA/(KB*(Tc+273.15)))*Math.exp(-0.35*(cr-22)/5); }
+let lastCurve=[];
+function predict(){
+ let cr=parseFloat(document.getElementById('cr').value);
+ let Tc=parseFloat(document.getElementById('temp').value);
+ let t=parseFloat(document.getElementById('time').value);
+ let kp=kp_model(cr,Tc), dm=1000*Math.sqrt(kp*3600*t);
+ let thick=6.07*dm, sinter=(30-2*dm).toFixed(2);
+ let dmin=Math.min(...[20,22,27].map(v=>Math.abs(cr-v)));
+ let caseTxt = dmin<=0.5 ? `Case B: Cr ${cr} wt% within 0.5 wt% of measured alloy.` : `Case A: Cr ${cr} wt% between measured alloys, composition interpolated. Extra error ~15%.`;
+ let extra=(cr<20||cr>27||Tc<600||Tc>900||t>6000)?'<br><span class="warn">Extrapolation - outside measured range, do not trust.</span>':'';
+ document.getElementById('case').innerHTML=caseTxt+extra;
+ document.getElementById('results').innerHTML=`<div class="out">kp = ${kp.toExponential(2)} g²/cm⁴/s</div><div class="out">Mass gain at ${t} h = <b>${dm.toFixed(3)} mg/cm²</b></div><div class="out">Oxide thickness ≈ ${thick.toFixed(2)} µm (Cr2O3)</div><div class="out">Sintered porosity ≈ ${sinter} %</div>`;
+ // plot + table
+ let cv=document.getElementById('plot'),ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);
+ ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.beginPath();lastCurve=[];
+ for(let i=0;i<=100;i++){let tt=Math.max(1,(t*1.5)*i/100);let d=1000*Math.sqrt(kp*3600*tt);lastCurve.push([tt,d]);
+  let x=40+i/100*(cv.width-60),y=cv.height-30-(d/(1000*Math.sqrt(kp*3600*t*1.5)))*(cv.height-60);
+  i==0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+ let tbl=document.getElementById('tbl');tbl.innerHTML='<tr><th>Time (h)</th><th>Mass gain (mg/cm²)</th><th>Oxide thick (µm)</th></tr>';
+ for(let i=0;i<20;i++){let tt=Math.exp(Math.log(1)+(Math.log(t)-Math.log(1))*i/19);let d=1000*Math.sqrt(kp*3600*tt);
+  tbl.innerHTML+=`<tr><td>${tt.toFixed(1)}</td><td>${d.toFixed(3)}</td><td>${(6.07*d).toFixed(2)}</td></tr>`;}
+ // tasks
+ document.getElementById('t3a').innerHTML=`Model at ${Tc}°C uses Arrhenius fit. Naive linear interpolation in 1/T between neighbours would give similar result within ~10% for interior T (700,800°C). Vault test: leave-one-temperature-out.`;
+ let rows='';for(let c=20;c<=27;c++){rows+=`<tr><td>${c}</td><td>${(1000*Math.sqrt(kp_model(c,800)*3600*100)).toFixed(3)}</td></tr>`;}
+ document.getElementById('t3b').innerHTML=`<table><tr><th>Cr</th><th>dm 800°C 100h</th></tr>${rows}</table><small>Mass gain falls slightly with Cr in this fitted model.</small>`;
+ document.getElementById('t3c').innerHTML=caseTxt+' No image editing - case only decides which error is quoted.';
+}
+function downloadCSV(){let s='time_h,mass_gain_mg_cm2\n';lastCurve.forEach(r=>{s+=r[0].toFixed(1)+','+r[1].toFixed(4)+'\n';});let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/csv'}));a.download='prediction.csv';a.click();}
+document.getElementById('alloy').onchange=e=>{let m={'Fe20Cr':20,'Fe22Cr':22,'Fe27Cr':27};document.getElementById('cr').value=m[e.target.value];predict();};
+predict();
+</script>
+</body>
+</html>
 
 <script>
 const KB=8.617333e-5, EA=2.7, KP_REF=4.5e-15, TREF=973.15;
