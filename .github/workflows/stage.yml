@@ -1,0 +1,49 @@
+name: stage
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: Which script to run
+        type: choice
+        options:
+          - smoke_test
+          - verify_licenses
+          - run_extract
+          - run_digitise
+          - run_micrographs
+          - run_build
+          - run_train
+          - run_tasks
+          - build_notice
+permissions:
+  contents: write
+env:
+  PYTHONPATH: .
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -r requirements.txt
+      - name: Run the script
+        env:
+          META_API_KEY: ${{ secrets.META_API_KEY }}
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          . .venv/bin/activate
+          python scripts/$SCRIPT.py
+      - name: Save results
+        if: always()
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Results of $SCRIPT" || echo "Nothing to commit"
+          git push || echo "Nothing to push"
