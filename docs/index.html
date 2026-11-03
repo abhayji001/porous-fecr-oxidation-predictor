@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Porous Fe-Cr Oxidation Predictor</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;max-width:1100px;margin:auto;padding:16px}
+.row{display:grid;grid-template-columns:1fr 2fr 1fr;gap:16px}
+.card{border:1px solid #ddd;border-radius:8px;padding:12px}
+label{display:block;margin:8px 0}
+input{width:100%;padding:6px}
+button{padding:8px 16px;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>Porous Fe-Cr Oxidation Predictor</h1>
+<p>Prediction from regression fitted to published data, not a measurement. Sintered porosity = pore network of sintered body. Oxide-layer porosity = voids in oxide scale.</p>
+<div class="row">
+<div class="card">
+<label>Cr wt% <input id="cr" type="number" value="22" step="0.1"></label>
+<label>Temperature C <input id="T" type="number" value="700" step="5"></label>
+<label>Time h <input id="t" type="number" value="100"></label>
+<button onclick="predict()">Predict</button>
+<div id="nums"></div>
+<div id="status"></div>
+</div>
+<div class="card"><div id="plot"></div></div>
+<div class="card"><div id="table"></div></div>
+</div>
+<script>
+const KB=8.617333e-5, KP_REF=4.5e-15, T_REF=973.15, EA=2.7;
+function kp(cr,Tc){
+  const c=(cr-22)/5, Tk=Tc+273.15, x=1/(KB*Tk), xr=1/(KB*T_REF);
+  const a0=Math.log(KP_REF)+EA*xr;
+  return Math.exp(a0+0.10*c-(EA+0.05*c)*x);
+}
+function dm(cr,Tc,t){ return 1000*Math.sqrt(kp(cr,Tc)*3600*t); }
+function predict(){
+  const cr=parseFloat(document.getElementById('cr').value);
+  const T=parseFloat(document.getElementById('T').value);
+  const t=parseFloat(document.getElementById('t').value);
+  const v=dm(cr,T,t);
+  const kase=Math.abs(cr-22)<=0.5||Math.abs(cr-20)<=0.5||Math.abs(cr-27)<=0.5?"Case B":"Case A";
+  document.getElementById('nums').innerHTML='<p><b>Mass gain:</b> '+v.toFixed(4)+' mg/cm2</p><p>'+kase+'</p>';
+  document.getElementById('status').innerText=(cr<20||cr>27||T<600||T>900)?"Outside measured range: extrapolation, do not trust.":kase+" interpolation.";
+  const ts=[],ys=[];
+  for(let i=0;i<=20;i++){ const tt=Math.max(1,t*Math.pow(10,-2+2*i/20)); ts.push(tt); ys.push(dm(cr,T,tt)); }
+  Plotly.newPlot('plot',[{x:ts,y:ys}],{xaxis:{type:'log',title:'Time h'},yaxis:{title:'mg cm-2'}},{responsive:true});
+  let h="<table><tr><th>Time</th><th>mg/cm2</th></tr>";
+  ts.slice(-10).forEach((tt,i)=>{h+='<tr><td>'+tt.toFixed(1)+'</td><td>'+ys[ys.length-10+i].toFixed(4)+'</td></tr>';});
+  document.getElementById('table').innerHTML=h+"</table>";
+}
+predict();
+</script>
+</body>
+</html>
