@@ -1,0 +1,9 @@
+source_id,doi,citation,expected_license,pdf_url,supplement_url,status,license_verified_at
+koszelow2023,10.1007/s11661-023-07005-z,"Koszelow et al., Metall. Mater. Trans. A 54:2244 (2023)",CC-BY-4.0,https://link.springer.com/content/pdf/10.1007/s11661-023-07005-z.pdf,https://static-content.springer.com/esm/art%3A10.1007%2Fs11661-023-07005-z/MediaObjects/11661_2023_7005_MOESM1_ESM.pdf,approved,
+koszelow2021,10.1016/j.corsci.2021.109589,"Koszelow et al., Corros. Sci. 189:109589 (2021)",CC-BY-4.0,https://pub.pg.edu.pl/en/download/155442-high-temperature-corrosion-evaluation-and-lifetime-prediction-of-porous-fe22cr-stainless-steel-in-ai,,approved,
+koszelow2022,,"Koszelow et al., Mater. Des. 215:110492 (2022)",CC-BY-NC-ND-4.0,,,excluded,
+koszelow2024,,"Koszelow et al., Corros. Sci. 234:112129 (2024)",CC-BY-NC-4.0,,,excluded,
+matdes2025,10.1016/j.matdes.2024.113536,"Mater. Des. 2025, microstructure model for porous Fe-Cr steels",UNKNOWN,,,excluded,
+acta2026,10.65731/ama-2026-0014,"Acta Mech. Autom. 2026",CC-BY-NC-ND-4.0,,,excluded,
+taylor2021,10.1038/s41529-021-00184-3,"Taylor and Tossey (2021)",UNKNOWN,,,excluded,
+choi2011,,"Choi (2011), Powder Materials journal",UNKNOWN,,,excluded,
